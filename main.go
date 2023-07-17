@@ -7,6 +7,8 @@ package main
 //http://localhost:3000/close 关闭质控医生端
 
 import (
+	"fmt"
+	"github.com/go-chi/chi/middleware"
 	"log"
 	"net/http"
 	"os"
@@ -21,14 +23,14 @@ import (
 var (
 	view *miniblink.WebView
 
-	is_debug           bool
-	qc_win_title       string
-	qc_address         string
-	qc_localproxy_port string
-	qc_width           int
-	qc_height          int
-	qc_top             int
-	qc_left            int
+	isDebug          bool
+	qcWinTitle       string
+	qcAddress        string
+	qcLocalproxyPort string
+	qcWidth          int
+	qcHeight         int
+	qcTop            int
+	qcLeft           int
 
 	emplCode string
 	hospCode string
@@ -53,22 +55,22 @@ func readConfig() {
 		log.Fatal(e)
 	}
 
-	is_debug, _ = strconv.ParseBool(os.Getenv("is_debug"))
-	qc_win_title = os.Getenv("qc_win_title")
+	isDebug, _ = strconv.ParseBool(os.Getenv("is_debug"))
+	qcWinTitle = os.Getenv("qc_win_title")
 
-	qc_address = os.Getenv("qc_address")
-	qc_localproxy_port = os.Getenv("qc_localproxy_port")
+	qcAddress = os.Getenv("qc_address")
+	qcLocalproxyPort = os.Getenv("qc_localproxy_port")
 
-	qc_width, _ = strconv.Atoi(os.Getenv("qc_width"))
-	qc_height, _ = strconv.Atoi(os.Getenv("qc_height"))
-	qc_top, _ = strconv.Atoi(os.Getenv("qc_top"))
+	qcWidth, _ = strconv.Atoi(os.Getenv("qc_width"))
+	qcHeight, _ = strconv.Atoi(os.Getenv("qc_height"))
+	qcTop, _ = strconv.Atoi(os.Getenv("qc_top"))
 	var right, _ = strconv.Atoi(os.Getenv("qc_right"))
-	qc_left = width - right - qc_width
+	qcLeft = width - right - qcWidth
 }
 
 func initBlink() {
 	//设置调试模式
-	miniblink.SetDebugMode(is_debug)
+	miniblink.SetDebugMode(isDebug)
 	//初始化miniblink模块
 	err := miniblink.InitBlink()
 	if err != nil {
@@ -83,16 +85,19 @@ func startServe() {
 	})
 	r.Get("/inpat", inpat)
 	r.Get("/close", closeView)
-	http.ListenAndServe(":"+qc_localproxy_port, r)
+	if isDebug {
+		r.Use(middleware.Logger)
+	}
+	log.Fatal(http.ListenAndServe(":"+qcLocalproxyPort, r))
 }
 
 func inpat(rw http.ResponseWriter, r *http.Request) {
 	inpatId := r.URL.Query().Get("inpatId")
-	url_emplCode := r.URL.Query().Get("emplCode")
-	url_hospCode := r.URL.Query().Get("hospCode")
-	isSetUser := (len(emplCode) > 0 && len(hospCode) > 0) && (url_emplCode != emplCode || url_hospCode != hospCode)
-	emplCode = url_emplCode
-	hospCode = url_hospCode
+	urlEmplCode := r.URL.Query().Get("emplCode")
+	urlHospCode := r.URL.Query().Get("hospCode")
+	isSetUser := (len(emplCode) > 0 && len(hospCode) > 0) && (urlEmplCode != emplCode || urlHospCode != hospCode)
+	emplCode = urlEmplCode
+	hospCode = urlHospCode
 
 	if view != nil {
 		if view.IsDestroy {
@@ -103,24 +108,28 @@ func inpat(rw http.ResponseWriter, r *http.Request) {
 	} else {
 		go newView(inpatId)
 	}
+
+	rw.Write([]byte("success"))
 }
 
-func closeView(rw http.ResponseWriter, r *http.Request) {
+func closeView(rw http.ResponseWriter, _ *http.Request) {
 	if view != nil {
 		view.DestroyWindow()
 	}
+
+	rw.Write([]byte("success"))
 }
 
 func newView(inpatId string) {
 	// 启动浏览器
-	view = miniblink.NewWebView(false, qc_width, qc_height, qc_left, qc_top)
+	view = miniblink.NewWebView(false, qcWidth, qcHeight, qcLeft, qcTop)
 	// 启动浏览器(只有web界面会显示)
 	//view := miniblink.NewWebView(false, qc_width, qc_height, qc_left, qc_top)
-	view.LoadURL(qc_address)
+	view.LoadURL(qcAddress)
 
 	setUser()
 
-	view.LoadURL(qc_address + "?inpatId=" + inpatId)
+	view.LoadURL(qcAddress + "?inpatId=" + inpatId)
 
 	// 显示窗口
 	view.ShowWindow()
@@ -136,7 +145,7 @@ func refreshView(isSetUser bool, inpatId string) {
 		setUser()
 	}
 
-	view.LoadURL(qc_address + "?inpatId=" + inpatId)
+	view.LoadURL(qcAddress + "?inpatId=" + inpatId)
 
 	setWinTitle()
 
@@ -146,11 +155,14 @@ func refreshView(isSetUser bool, inpatId string) {
 func setUser() {
 	var user string = `{"orgCode":"` + hospCode + `","emplCode":"` + emplCode + `"}`
 	var setUserJS string = `localStorage.setItem('user','` + user + `')`
-	view.Eval(setUserJS)
+	_, err := view.Eval(setUserJS)
+	if err != nil {
+		fmt.Println("setUser err:", err)
+	}
 }
 
 func setWinTitle() {
 	// 设置窗体标题(会被web页面标题覆盖)
-	view.SetWindowTitle(qc_win_title)
+	view.SetWindowTitle(qcWinTitle)
 	view.DisableAutoTitle()
 }
